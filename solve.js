@@ -100,7 +100,7 @@ const FM_LINE = /^([a-z_]+):(?: (.*))?$/;
 const FM_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const FM_NAME = /^[a-z0-9-]+$/;
 const FM_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const FM_TAG = /^[^"[\]]+$/;
+const FM_TAG = /^[^"\[\]]+$/;
 
 function daysIn(y, m) {
   if (m === 2) return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28;
@@ -203,78 +203,87 @@ function parseFrontMatter(text) {
 
 function isBlank(line) {
   for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c !== ' ' && c !== '\t') return false;
+    const c = line.charCodeAt(i);
+    if (c !== 32 && c !== 9) return false;
   }
   return true;
 }
 
 /** Fence open: the language when `line` opens a fence, else null. */
 function fenceOpen(line) {
-  if (!line.startsWith('```')) return null;
+  if (line.length < 3 || line.charCodeAt(0) !== 96 || line.charCodeAt(1) !== 96 || line.charCodeAt(2) !== 96) return null;
   let i = 3;
   let lang = '';
   while (i < line.length) {
-    const c = line[i];
-    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '_' || c === '+' || c === '-') {
-      lang += c;
+    const c = line.charCodeAt(i);
+    if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 95 || c === 43 || c === 45) {
+      lang += line[i];
       i++;
     } else break;
   }
   while (i < line.length) {
-    const c = line[i];
-    if (c !== ' ' && c !== '\t') return null;
+    const c = line.charCodeAt(i);
+    if (c !== 32 && c !== 9) return null;
     i++;
   }
   return lang;
 }
 
 function fenceClose(line) {
-  if (!line.startsWith('```')) return false;
+  if (line.length < 3 || line.charCodeAt(0) !== 96 || line.charCodeAt(1) !== 96 || line.charCodeAt(2) !== 96) return false;
   for (let i = 3; i < line.length; i++) {
-    const c = line[i];
-    if (c !== ' ' && c !== '\t') return false;
+    const c = line.charCodeAt(i);
+    if (c !== 32 && c !== 9) return false;
   }
   return true;
 }
 
 /** A heading line's level and text, or null. */
 function headingOf(line) {
-  let i = 0;
-  while (i < line.length && line[i] === '#') i++;
-  if (i === 0 || i > 6) return null;
+  if (line.charCodeAt(0) !== 35) return null;
+  let i = 1;
+  while (i < line.length && line.charCodeAt(i) === 35) i++;
+  if (i > 6) return null;
   const depth = i;
-  if (i >= line.length || (line[i] !== ' ' && line[i] !== '\t')) return null;
-  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i++;
+  if (i >= line.length) return null;
+  const ci = line.charCodeAt(i);
+  if (ci !== 32 && ci !== 9) return null;
+  i++;
+  while (i < line.length && (line.charCodeAt(i) === 32 || line.charCodeAt(i) === 9)) i++;
   let end = line.length;
-  while (end > i && (line[end - 1] === ' ' || line[end - 1] === '\t')) end--;
+  while (end > i && (line.charCodeAt(end - 1) === 32 || line.charCodeAt(end - 1) === 9)) end--;
   if (end === i) return null;
   return { depth, text: line.slice(i, end) };
 }
 
 function isHr(line) {
-  let body = line;
-  if (body.startsWith('---') || body.startsWith('***')) body = body.slice(3);
-  else return false;
-  for (let i = 0; i < body.length; i++) {
-    const c = body[i];
-    if (c !== ' ' && c !== '\t') return false;
+  if (line.length < 3) return false;
+  const c0 = line.charCodeAt(0);
+  const c1 = line.charCodeAt(1);
+  const c2 = line.charCodeAt(2);
+  if (!((c0 === 45 && c1 === 45 && c2 === 45) || (c0 === 42 && c1 === 42 && c2 === 42))) return false;
+  for (let i = 3; i < line.length; i++) {
+    const c = line.charCodeAt(i);
+    if (c !== 32 && c !== 9) return false;
   }
   return true;
 }
 
 /** Bullet item text or null: "- " / "* " then the rest (possibly empty). */
 function bulletOf(line) {
-  if ((line[0] === '-' || line[0] === '*') && line[1] === ' ') return line.slice(2);
+  if (line.length >= 2) {
+    const c0 = line.charCodeAt(0);
+    if ((c0 === 45 || c0 === 42) && line.charCodeAt(1) === 32) return line.slice(2);
+  }
   return null;
 }
 
 /** Ordered item { num, text } or null: 1-9 digits, ". ", then the rest. */
 function orderedOf(line) {
   let i = 0;
-  while (i < line.length && line[i] >= '0' && line[i] <= '9') i++;
+  while (i < line.length && line.charCodeAt(i) >= 48 && line.charCodeAt(i) <= 57) i++;
   if (i === 0 || i > 9) return null;
-  if (line[i] !== '.' || line[i + 1] !== ' ') return null;
+  if (line.charCodeAt(i) !== 46 || line.charCodeAt(i + 1) !== 32) return null;
   return { num: Number(line.slice(0, i)), text: line.slice(i + 2) };
 }
 
@@ -282,20 +291,26 @@ const NOT_WS = /[^ \t\n\v\f\r\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u
 
 function isContinued(line) {
   let i = 0;
-  while (i < line.length && line[i] === ' ') i++;
+  while (i < line.length && line.charCodeAt(i) === 32) i++;
   return i >= 2 && i < line.length && NOT_WS.test(line[i]);
 }
 
 function trimLine(line) {
   let a = 0;
   let b = line.length;
-  while (a < b && (line[a] === ' ' || line[a] === '\t')) a++;
-  while (b > a && (line[b - 1] === ' ' || line[b - 1] === '\t')) b--;
+  while (a < b && (line.charCodeAt(a) === 32 || line.charCodeAt(a) === 9)) a++;
+  while (b > a && (line.charCodeAt(b - 1) === 32 || line.charCodeAt(b - 1) === 9)) b--;
   return a === 0 && b === line.length ? line : line.slice(a, b);
 }
 
 function endsParagraph(line) {
-  return isBlank(line) || fenceOpen(line) !== null || headingOf(line) !== null || isHr(line);
+  if (line.length === 0) return true;
+  const c0 = line.charCodeAt(0);
+  if (c0 === 32 || c0 === 9) return isBlank(line);
+  if (c0 === 35) return headingOf(line) !== null;
+  if (c0 === 96) return fenceOpen(line) !== null;
+  if (c0 === 45 || c0 === 42) return isHr(line);
+  return false;
 }
 
 const ESCAPABLE = new Set(['\\', '`', '*', '_', '[', ']', '(', ')', '#', '+', '-', '.', '!', '>']);
@@ -416,52 +431,57 @@ export function inline(s, env) {
 function renderMarkdown(src, env) {
   const lines = src.split('\n');
   const ids = new Set();
-  const blocks = [];
   const toc = [];
   let excerpt = null;
+  let html = '';
   let i = 0;
   const n = lines.length;
   while (i < n) {
     const line = lines[i];
-    if (isBlank(line)) {
+    if (line.length === 0 || isBlank(line)) {
       i++;
       continue;
     }
-    const fence = fenceOpen(line);
-    if (fence !== null) {
-      const body = [];
-      i++;
-      while (i < n && !fenceClose(lines[i])) body.push(lines[i++]);
-      i++;
-      const cls = fence === '' ? '' : ` class="language-${escapeHtml(fence)}"`;
-      let text = '';
-      for (const l of body) text += `${escapeHtml(l)}\n`;
-      blocks.push(`<pre><code${cls}>${text}</code></pre>`);
-      continue;
+    const c0 = line.charCodeAt(0);
+    if (c0 === 96) {
+      const fence = fenceOpen(line);
+      if (fence !== null) {
+        const body = [];
+        i++;
+        while (i < n && !fenceClose(lines[i])) body.push(lines[i++]);
+        i++;
+        const cls = fence === '' ? '' : ` class="language-${escapeHtml(fence)}"`;
+        let text = '';
+        for (const l of body) text += `${escapeHtml(l)}\n`;
+        html += `<pre><code${cls}>${text}</code></pre>\n`;
+        continue;
+      }
     }
-    const heading = headingOf(line);
-    if (heading !== null) {
-      const id = uniqueSlug(slugify(heading.text), ids);
-      const html = inline(heading.text, env);
-      blocks.push(`<h${heading.depth} id="${id}">${html}</h${heading.depth}>`);
-      if (heading.depth === 2 || heading.depth === 3) toc.push({ level: heading.depth, id, html });
-      i++;
-      continue;
+    if (c0 === 35) {
+      const heading = headingOf(line);
+      if (heading !== null) {
+        const id = uniqueSlug(slugify(heading.text), ids);
+        const inl = inline(heading.text, env);
+        html += `<h${heading.depth} id="${id}">${inl}</h${heading.depth}>\n`;
+        if (heading.depth === 2 || heading.depth === 3) toc.push({ level: heading.depth, id, html: inl });
+        i++;
+        continue;
+      }
     }
     if (isHr(line)) {
-      blocks.push('<hr>');
+      html += '<hr>\n';
       i++;
       continue;
     }
-    if (line[0] === '>') {
+    if (c0 === 62) { // >
       const body = [];
-      while (i < n && lines[i][0] === '>') {
+      while (i < n && lines[i].charCodeAt(0) === 62) {
         let l = lines[i++];
         l = l.startsWith('> ') ? l.slice(2) : l.slice(1);
         body.push(l);
       }
       const kept = body.map(trimLine).filter((l) => l !== '');
-      blocks.push(kept.length === 0 ? '<blockquote>\n</blockquote>' : `<blockquote>\n<p>${inline(kept.join('\n'), env)}</p>\n</blockquote>`);
+      html += kept.length === 0 ? '<blockquote>\n</blockquote>\n' : `<blockquote>\n<p>${inline(kept.join('\n'), env)}</p>\n</blockquote>\n`;
       continue;
     }
     const bullet = bulletOf(line);
@@ -483,18 +503,16 @@ function renderMarkdown(src, env) {
       const open = isOrdered && ordered.num !== 1 ? `<ol start="${ordered.num}">` : `<${tag}>`;
       let text = `${open}\n`;
       for (const parts of items) text += `<li>${inline(parts.join('\n'), env)}</li>\n`;
-      blocks.push(text + `</${tag}>`);
+      html += text + `</${tag}>\n`;
       continue;
     }
     const body = [trimLine(line)];
     i++;
     while (i < n && !endsParagraph(lines[i])) body.push(trimLine(lines[i++]));
-    const html = inline(body.join('\n'), env);
-    if (excerpt === null) excerpt = html;
-    blocks.push(`<p>${html}</p>`);
+    const inl = inline(body.join('\n'), env);
+    if (excerpt === null) excerpt = inl;
+    html += `<p>${inl}</p>\n`;
   }
-  let html = '';
-  for (const b of blocks) html += `${b}\n`;
   return { html, toc, excerpt: excerpt ?? '' };
 }
 
@@ -599,10 +617,11 @@ const hasOwn = Object.prototype.hasOwnProperty;
 
 /** The value at `path` in the scope chain: its first name from the nearest scope holding it, then own properties. */
 function lookup(scope, path) {
+  const p0 = path[0];
   let s = scope;
-  while (s !== null && !hasOwn.call(s.vars, path[0])) s = s.parent;
+  while (s !== null && !hasOwn.call(s.vars, p0)) s = s.parent;
   if (s === null) return undefined;
-  let v = s.vars[path[0]];
+  let v = s.vars[p0];
   for (let k = 1; k < path.length; k++) {
     if (v === null || typeof v !== 'object' || !hasOwn.call(v, path[k])) return undefined;
     v = v[path[k]];
@@ -893,11 +912,13 @@ export function run(input) {
   const allTags = tags.map((t) => ({ name: t.name, slug: t.slug, url: t.url, count: t.posts.length }));
   const recent = posts.slice(0, input.site.recent).map((p) => cards.get(p));
   const ctx = { templates };
+  const baseVars = { site, tags: allTags, recent };
   const render = (name, vars) => {
     const nodes = templates.get(name);
     if (nodes === undefined) return null;
+    const merged = Object.assign({}, baseVars, vars);
     const out = [];
-    renderNodes(nodes, { vars: { site, tags: allTags, recent, ...vars }, parent: null }, ctx, 0, out);
+    renderNodes(nodes, { vars: merged, parent: null }, ctx, 0, out);
     return out.join('');
   };
   for (const s of sources) output[`${s.outDir}/index.html`] = render(s.layout, { page: pageOf(s) });
